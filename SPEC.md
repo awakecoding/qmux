@@ -1,27 +1,34 @@
-# QMUX
+# JMUX
 
-QMUX is a wire protocol for multiplexing connections or streams into a single connection. It is a subset of the [SSH Connection Protocol](https://tools.ietf.org/html/rfc4254#page-5).
+JMUX is a wire protocol for multiplexing connections or streams into a single connection. It is inspired by the [SSH Connection Protocol](https://tools.ietf.org/html/rfc4254#page-5) and [QMUX](https://github.com/progrium/qmux).
 
 Features removed to simplify include channel types, channel requests, and "extended data" messages that were used for STDERR data.
 
 ## Common Definitions
 
-   All QMUX messages share a common header structure that respects [data memory alignment rules](https://developer.ibm.com/technologies/systems/articles/pa-dalign/).
+   All JMUX messages share a common 4-byte header structure:
 
       uint8     msgType
-      uint8[3]  reserved
+      uint8     msgFlags
+      uint16    msgSize
 
-   The following is a list of all QMUX channel message types:
+   The **msgType** field contains one of the following values:
 
-      QMUX_MSG_CHANNEL_OPEN                    100
-      QMUX_MSG_CHANNEL_OPEN_SUCCESS            101
-      QMUX_MSG_CHANNEL_OPEN_FAILURE            102
-      QMUX_MSG_CHANNEL_WINDOW_ADJUST           103
-      QMUX_MSG_CHANNEL_DATA                    104
-      QMUX_MSG_CHANNEL_EOF                     105
-      QMUX_MSG_CHANNEL_CLOSE                   106
+      JMUX_MSG_CHANNEL_OPEN                    100
+      JMUX_MSG_CHANNEL_OPEN_SUCCESS            101
+      JMUX_MSG_CHANNEL_OPEN_FAILURE            102
+      JMUX_MSG_CHANNEL_WINDOW_ADJUST           103
+      JMUX_MSG_CHANNEL_DATA                    104
+      JMUX_MSG_CHANNEL_EOF                     105
+      JMUX_MSG_CHANNEL_CLOSE                   106
    
-   All reserved fields MUST be set to zero and their values ignored. All integer fields are in network byte order (big endian).
+   The **msgFlags** field is reserved. All reserved fields MUST be set to zero and their values ignored.
+
+   The **msgSize** field is the size of the complete message including the header.
+
+   All integer fields are in network byte order (big endian).
+
+   All string fields are UTF-8 strings without a null terminator.
 
 ## Channels
 
@@ -36,47 +43,61 @@ Features removed to simplify include channel types, channel requests, and "exten
    When either side wishes to open a new channel, it allocates a local number for the channel. It then sends the following message to the
    other side, and includes the local channel number and initial window size in the message.
 
-      uint8     QMUX_MSG_CHANNEL_OPEN
-      uint8[3]  reserved
-      uint32    sender channel id
-      uint32    initial window size
-      uint32    maximum packet size
+      uint8     msgType (JMUX_MSG_CHANNEL_OPEN)
+      uint8     msgFlags
+      uint16    msgSize
+      uint32    senderChannelId
+      uint32    initialWindowSize
+      uint32    maximumPacketSize
+      uint8[*]  destinationUrl
 
-   The 'sender channel' is a local identifier for the channel used by the sender of this message. The 'initial window size' specifies how many bytes of channel data can be sent to the sender of this message without adjusting the window. The 'maximum packet size' specifies the maximum size of an individual data packet that can be sent to the sender. For example, one might want to use smaller packets for interactive connections to get better interactive response on slow links.
+   **senderChannelId** is a local identifier for the channel used by the sender of this message. **initialWindowSize** specifies how many bytes of channel data can be sent to the sender of this message without adjusting the window. The **maximumPacketSize** specifies the maximum size of an individual data packet that can be sent to the sender. **destinationUrl** is an UTF-8 string containing the destination for the channel:
 
-   The remote side then decides whether it can open the channel, and responds with either `QMUX_MSG_CHANNEL_OPEN_SUCCESS` or `QMUX_MSG_CHANNEL_OPEN_FAILURE`.
+    * tcp://google.com:443
+    * tcp://192.168.1.100:3389
 
-      uint8     QMUX_MSG_CHANNEL_OPEN_SUCCESS
-      uint8[3]  reserved
-      uint32    recipient channel id
-      uint32    sender channel id
-      uint32    initial window size
-      uint32    maximum packet size
+   The URL string SHOULD NOT be null-terminated, but implementations SHOULD ignore null terminators if they are present.
 
-   The 'recipient channel' is the channel number given in the original open request, and 'sender channel' is the channel number allocated by the other side.
+   The remote side then decides whether it can open the channel, and responds with either `JMUX_MSG_CHANNEL_OPEN_SUCCESS` or `JMUX_MSG_CHANNEL_OPEN_FAILURE`.
 
-      uint8     QMUX_MSG_CHANNEL_OPEN_FAILURE
-      uint8[3]  reserved
-      uint32    recipient channel id
+      uint8     msgType (JMUX_MSG_CHANNEL_OPEN_SUCCESS)
+      uint8     msgFlags
+      uint16    msgSize
+      uint32    recipientChannelId
+      uint32    senderChannelId
+      uint32    initialWindowSize
+      uint32    maximumPacketSize
+
+   The **recipientChannelId** is the channel number given in the original open request, and **senderChannelId** is the channel number allocated by the other side.
+
+      uint8     msgType (JMUX_MSG_CHANNEL_OPEN_FAILURE)
+      uint8     msgFlags
+      uint16    msgSize
+      uint32    recipientChannelId
+      uint32    reasonCode
+      uint8[*]  description
+
+   The **reasonCode** is used to indicate the reason for the channel opening failure. The **description** field is optional and contains a textual explanation for the failure if it is present.
 
 ###  Data Transfer
 
    The window size specifies how many bytes the other party can send before it must wait for the window to be adjusted. Both parties use the following message to adjust the window.
 
-      uint8     QMUX_MSG_CHANNEL_WINDOW_ADJUST
-      uint8[3]  reserved
-      uint32    recipient channel id
-      uint32    bytes to add
+      uint8     msgType (JMUX_MSG_CHANNEL_WINDOW_ADJUST)
+      uint8     msgFlags
+      uint16    msgSize
+      uint32    recipientChannelId
+      uint32    windowAdjustment
 
    After receiving this message, the recipient MAY send the given number of bytes more than it was previously allowed to send; the window size is incremented. Implementations MUST correctly handle window sizes of up to 2^32 - 1 bytes. The window MUST NOT be increased above 2^32 - 1 bytes.
 
    Data transfer is done with messages of the following type.
 
-      uint8     QMUX_MSG_CHANNEL_DATA
-      uint8[3]  reserved
-      uint32    recipient channel id
-      uint32    transfer size
-      uint8[*]  transfer data
+      uint8     msgType (JMUX_MSG_CHANNEL_DATA)
+      uint8     msgFlags
+      uint16    msgSize
+      uint32    recipientChannelId
+      uint8[*]  transferData
 
    The maximum amount of data allowed is determined by the maximum packet size for the channel, and the current window size, whichever is smaller. The window size is decremented by the amount of data sent. Both parties MAY ignore all extra data sent after the allowed window is empty.
 
@@ -84,19 +105,21 @@ Features removed to simplify include channel types, channel requests, and "exten
 
 ###  Closing a Channel
 
-   When a party will no longer send more data to a channel, it SHOULD send `QMUX_MSG_CHANNEL_EOF`.
+   When a party will no longer send more data to a channel, it SHOULD send `JMUX_MSG_CHANNEL_EOF`.
 
-      uint8     QMUX_MSG_CHANNEL_EOF
-      uint8[3]  reserved
-      uint32    recipient channel id
+      uint8     msgType(JMUX_MSG_CHANNEL_EOF)
+      uint8     msgFlags
+      uint16    msgSize
+      uint32    recipientChannelId
 
    No explicit response is sent to this message. However, the application may send EOF to whatever is at the other end of the channel. Note that the channel remains open after this message, and more data may still be sent in the other direction. This message does not consume window space and can be sent even if no window space is available.
 
-   When either party wishes to terminate the channel, it sends `QMUX_MSG_CHANNEL_CLOSE`. Upon receiving this message, a party MUST send back an `QMUX_MSG_CHANNEL_CLOSE` unless it has already sent this message for the channel. The channel is considered closed for a party when it has both sent and received `QMUX_MSG_CHANNEL_CLOSE`, and the party may then reuse the channel number. A party MAY send `QMUX_MSG_CHANNEL_CLOSE` without having sent or received `QMUX_MSG_CHANNEL_EOF`.
+   When either party wishes to terminate the channel, it sends `JMUX_MSG_CHANNEL_CLOSE`. Upon receiving this message, a party MUST send back an `JMUX_MSG_CHANNEL_CLOSE` unless it has already sent this message for the channel. The channel is considered closed for a party when it has both sent and received `JMUX_MSG_CHANNEL_CLOSE`, and the party may then reuse the channel number. A party MAY send `JMUX_MSG_CHANNEL_CLOSE` without having sent or received `JMUX_MSG_CHANNEL_EOF`.
 
-      uint8     QMUX_MSG_CHANNEL_CLOSE
-      uint8[3]  reserved
-      uint32    recipient channel id
+      uint8     msgType (JMUX_MSG_CHANNEL_CLOSE)
+      uint8     msgFlags
+      uint16    msgSize
+      uint32    recipientChannelId
 
    This message does not consume window space and can be sent even if no window space is available.
 
