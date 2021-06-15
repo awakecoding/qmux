@@ -2,8 +2,6 @@
 
 JMUX is a wire protocol for multiplexing connections or streams into a single connection. It is inspired by the [SSH Connection Protocol](https://tools.ietf.org/html/rfc4254#page-5) and [QMUX](https://github.com/progrium/qmux).
 
-Features removed to simplify include channel types, channel requests, and "extended data" messages that were used for STDERR data.
-
 ## Common Definitions
 
    All JMUX messages share a common 4-byte header structure:
@@ -40,8 +38,7 @@ Features removed to simplify include channel types, channel requests, and "exten
 
 ###  Opening a Channel
 
-   When either side wishes to open a new channel, it allocates a local number for the channel. It then sends the following message to the
-   other side, and includes the local channel number and initial window size in the message.
+   When either side wishes to open a new channel, it allocates a local number for the channel. It then sends the following message to the other side, and includes the local channel number and initial window size in the message.
 
       uint8     msgType (JMUX_MSG_CHANNEL_OPEN)
       uint8     msgFlags
@@ -51,10 +48,10 @@ Features removed to simplify include channel types, channel requests, and "exten
       uint32    maximumPacketSize
       uint8[*]  destinationUrl
 
-   **senderChannelId** is a local identifier for the channel used by the sender of this message. **initialWindowSize** specifies how many bytes of channel data can be sent to the sender of this message without adjusting the window. The **maximumPacketSize** specifies the maximum size of an individual data packet that can be sent to the sender. **destinationUrl** is an UTF-8 string containing the destination for the channel:
+   **senderChannelId** is a local identifier for the channel used by the sender of this message. **initialWindowSize** specifies how many bytes of channel data can be sent to the sender of this message without adjusting the window. The **maximumPacketSize** specifies the maximum size of an individual data packet that can be sent to the sender. **destinationUrl** is a string containing the destination URL for the channel:
 
-    * tcp://google.com:443
-    * tcp://192.168.1.100:3389
+   * tcp://google.com:443
+   * tcp://192.168.1.100:3389
 
    The URL string SHOULD NOT be null-terminated, but implementations SHOULD ignore null terminators if they are present.
 
@@ -107,7 +104,7 @@ Features removed to simplify include channel types, channel requests, and "exten
 
    When a party will no longer send more data to a channel, it SHOULD send `JMUX_MSG_CHANNEL_EOF`.
 
-      uint8     msgType(JMUX_MSG_CHANNEL_EOF)
+      uint8     msgType (JMUX_MSG_CHANNEL_EOF)
       uint8     msgFlags
       uint16    msgSize
       uint32    recipientChannelId
